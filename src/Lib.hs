@@ -218,8 +218,8 @@ someFunc = do
     putStrLn ("node: " ++ show node)
     putStrLn "before: "
     forM_ (M.toList before) $ \(name, reaching) ->
-      putStrLn (name ++ ": " ++ show reaching)
+      putStrLn (name ++ ": " ++ show (S.toList reaching))
     putStrLn "after: "
     forM_ (M.toList after) $ \(name, reaching) ->
-      putStrLn (name ++ ": " ++ show reaching)
+      putStrLn (name ++ ": " ++ show (S.toList reaching))
     putStrLn ""
