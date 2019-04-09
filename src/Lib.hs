@@ -99,7 +99,7 @@ class Eq lat => CompleteLattice lat where
   combine :: lat -> lat -> lat
 
 data MonotoneFramework lat = MonotoneFramework
-  { flowGraph :: [(Int, Int)]
+  { flows :: [(Int, Int)]
   , extremal :: [Int]
   , extremalValue :: lat
   , transfer :: Int -> (lat -> lat)
@@ -107,7 +107,7 @@ data MonotoneFramework lat = MonotoneFramework
 
 -- uses worklist algorithm
 solveFramework :: forall lat. CompleteLattice lat => MonotoneFramework lat -> Map Int (lat, lat)
-solveFramework fw = present (go (flowGraph fw) initialAnalysis)
+solveFramework fw = present (go (flows fw) initialAnalysis)
   where initialValue :: Int -> lat
         initialValue i
           | i `elem` extremal fw = extremalValue fw
@@ -115,7 +115,7 @@ solveFramework fw = present (go (flowGraph fw) initialAnalysis)
 
         initialAnalysis :: Map Int lat
         initialAnalysis = M.fromList (fromFlow ++ fromExtremal)
-          where fromFlow = [ (i, initialValue i) | (a, b) <- flowGraph fw, i <- [a, b] ]
+          where fromFlow = [ (i, initialValue i) | (a, b) <- flows fw, i <- [a, b] ]
                 fromExtremal = [ (i, initialValue i) | i <- extremal fw ]
 
         -- bit of a hack, but the mapping should always contain a
@@ -124,7 +124,7 @@ solveFramework fw = present (go (flowGraph fw) initialAnalysis)
         analysisValue mapping i = fromJust (M.lookup i mapping)
 
         successorFlows :: Int -> [(Int, Int)]
-        successorFlows i = [ edge | edge@(source, _) <- flowGraph fw, source == i ]
+        successorFlows i = [ edge | edge@(source, _) <- flows fw, source == i ]
 
         go :: [(Int, Int)] -> Map Int lat -> Map Int lat
         go [] analysis = analysis -- TODO: also put the block exit analysis value
@@ -148,15 +148,41 @@ solveFramework fw = present (go (flowGraph fw) initialAnalysis)
 -- analysis values for reaching definitions:
 -- mapping from variable name to the places where it might have
 -- received its value. The value None indicates that the variable
--- might be uninitialized
+-- is potentially uninitialized
 newtype RD = RD (Map String (Set (Maybe Int)))
-           deriving (Eq, Show)
+        deriving (Eq, Show)
 
 instance CompleteLattice RD where
   bottom = RD M.empty
   combine (RD a1) (RD a2) = RD (M.unionWith S.union a1 a2)
 
--- reachingDefinitions :: Stmt Int -> MonotoneFramework
+freeVariablesAExp :: AExp -> [String]
+freeVariablesAExp (AVar name) = [name]
+freeVariablesAExp (AConst _) = []
+freeVariablesAExp (AOp _ a1 a2) = freeVariablesAExp a1 ++ freeVariablesAExp a2
+
+freeVariablesBExp :: BExp -> [String]
+freeVariablesBExp BTrue = []
+freeVariablesBExp BFalse = []
+freeVariablesBExp (BNot b) = freeVariablesBExp b
+freeVariablesBExp (BOp _ b1 b2) = freeVariablesBExp b1 ++ freeVariablesBExp b2
+freeVariablesBExp (BAOp _ a1 a2) = freeVariablesAExp a1 ++ freeVariablesAExp a2
+
+freeVariablesStmt :: Stmt a -> [String]
+freeVariablesStmt (SAssign _ name _) = [name]
+freeVariablesStmt (SSkip _) = []
+freeVariablesStmt (SSeq s1 s2) = freeVariablesStmt s1 ++ freeVariablesStmt s2
+freeVariablesStmt (SIf _ test s1 s2) = freeVariablesBExp test ++ freeVariablesStmt s1 ++ freeVariablesStmt s2
+freeVariablesStmt (SWhile _ test body) = freeVariablesBExp test ++ freeVariablesStmt body
+
+reachingDefinitions :: Stmt Int -> Map Int (RD, RD)
+reachingDefinitions stmt = undefined
+  where flowGraph = determineFlowGraph stmt
+        extremalValue = RD (M.fromList [ (name, S.singleton Nothing) | name <- freeVariablesStmt stmt ])
+        framework = MonotoneFramework
+          { flows = edges flowGraph
+          , extremal = [initialLabel stmt]
+          , extremalValue = extremalValue }
 
 someFunc :: IO ()
 someFunc = do
