@@ -1,9 +1,13 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Lib
     ( someFunc
     ) where
 
 import Control.Monad.State
 import Control.Monad
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
+import Data.Maybe
 
 data AExp = AVar String
           | AConst Int
@@ -87,6 +91,49 @@ flowEdges (SWhile i _ body) = flowEdges body ++ [(i, initialLabel body), (initia
 
 determineFlowGraph :: Stmt Int -> FlowGraph
 determineFlowGraph stmt = FlowGraph { vertices = blocks stmt, edges = flowEdges stmt }
+
+class Ord lat => CompleteLattice lat where
+  bottom :: lat
+  combine :: lat -> lat -> lat
+
+data MonotoneFramework lat = MonotoneFramework
+  { flowGraph :: [(Int, Int)]
+  , extremal :: [Int]
+  , extremalValue :: lat
+  , transfer :: Int -> (lat -> lat)
+  }
+
+-- uses worklist algorithm
+solveFramework :: CompleteLattice lat => MonotoneFramework lat -> Map Int lat
+solveFramework fw = go (flowGraph fw) initialAnalysis
+  where initialValue i
+          | i `elem` extremal fw = extremalValue fw
+          | otherwise = bottom
+
+        initialAnalysis = M.fromList (fromFlow ++ fromExtremal)
+          where fromFlow = [ (i, initialValue i) | (a, b) <- flowGraph fw, i <- [a, b] ]
+                fromExtremal = [ (i, initialValue i) | i <- extremal fw ]
+
+        -- bit of a hack, but the mapping should always contain a
+        -- value for the items we look up in it
+        analysisValue :: Ord k => Map k v -> k -> v
+        analysisValue mapping i = fromJust (M.lookup i mapping)
+
+        successorFlows :: Int -> [(Int, Int)]
+        successorFlows i = [ edge | edge@(source, _) <- flowGraph fw, source == i ]
+
+        go [] analysis = analysis -- TODO: also put the block exit analysis value
+        go ((source, target):remaining) analysisOld
+          -- ignore the results of the transfer function if they do
+          -- not give better information than we already had for the
+          -- target of this flow
+          | transferResults <= targetOld = go remaining analysisOld
+          -- otherwise propagate the changes
+          | otherwise = go (successorFlows target ++ remaining) analysisNew
+          where transferResults = transfer fw source (analysisValue analysisOld source)
+                targetOld = analysisValue analysisOld target
+                targetUpdated = targetOld `combine` transferResults
+                analysisNew = M.insert target targetUpdated analysisOld
 
 someFunc :: IO ()
 someFunc = do
