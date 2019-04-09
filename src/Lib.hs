@@ -176,20 +176,36 @@ freeVariablesStmt (SIf _ test s1 s2) = freeVariablesBExp test ++ freeVariablesSt
 freeVariablesStmt (SWhile _ test body) = freeVariablesBExp test ++ freeVariablesStmt body
 
 reachingDefinitions :: Stmt Int -> Map Int (RD, RD)
-reachingDefinitions stmt = undefined
+reachingDefinitions stmt = solveFramework framework
   where flowGraph = determineFlowGraph stmt
         extremalValue = RD (M.fromList [ (name, S.singleton Nothing) | name <- freeVariablesStmt stmt ])
+
+        transfer :: Int -> (RD -> RD)
+        transfer i r@(RD rdOld) = case block of
+          -- skip and test don't do anything to the definitions
+          BasicSkip -> r
+          BasicTest _ -> r
+          -- for an assignment, replace all definitions for our name
+          -- with just our label
+          BasicAssign name _ -> RD (M.insert name (S.singleton (Just i)) rdOld)
+          where -- it's probably inefficient to do this lookup every
+                -- time a transfer function gets called
+                Just block = lookup i (vertices flowGraph)
+
         framework = MonotoneFramework
           { flows = edges flowGraph
           , extremal = [initialLabel stmt]
-          , extremalValue = extremalValue }
+          , extremalValue = extremalValue
+          , transfer = transfer
+          }
 
 someFunc :: IO ()
 someFunc = do
-  let prog = SIf () (BAOp OpEqual (AVar "x") (AVar "x")) (SAssign () "x" (AConst 3)) (SAssign () "x" (AConst 4))
+  let prog = SWhile () (BAOp OpEqual (AVar "x") (AVar "x")) (SAssign () "x" (AConst 3))
   let labeled = assignLabels prog
   let graph = determineFlowGraph labeled
   putStrLn "Vertices: "
   forM_ (vertices graph) print
   putStrLn "Edges: "
   forM_ (edges graph) print
+  print (reachingDefinitions labeled)
