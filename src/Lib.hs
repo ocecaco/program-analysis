@@ -4,7 +4,6 @@ module Lib
     ) where
 
 import Control.Monad.State
-import Control.Monad
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Set (Set)
@@ -45,7 +44,7 @@ data BasicStmt = BasicTest BExp
                deriving (Eq, Ord, Show)
 
 assignLabels :: Stmt () -> Stmt Int
-assignLabels origStmt = evalState (go origStmt) 0
+assignLabels origStmt = evalState (go origStmt) 1
   where freshLabel :: State Int Int
         freshLabel = do
           i <- get
@@ -178,10 +177,10 @@ freeVariablesStmt (SWhile _ test body) = freeVariablesBExp test ++ freeVariables
 reachingDefinitions :: Stmt Int -> Map Int (RD, RD)
 reachingDefinitions stmt = solveFramework framework
   where flowGraph = determineFlowGraph stmt
-        extremalValue = RD (M.fromList [ (name, S.singleton Nothing) | name <- freeVariablesStmt stmt ])
+        extval = RD (M.fromList [ (name, S.singleton Nothing) | name <- freeVariablesStmt stmt ])
 
-        transfer :: Int -> (RD -> RD)
-        transfer i r@(RD rdOld) = case block of
+        trans :: Int -> (RD -> RD)
+        trans i r@(RD rdOld) = case block of
           -- skip and test don't do anything to the definitions
           BasicSkip -> r
           BasicTest _ -> r
@@ -195,17 +194,32 @@ reachingDefinitions stmt = solveFramework framework
         framework = MonotoneFramework
           { flows = edges flowGraph
           , extremal = [initialLabel stmt]
-          , extremalValue = extremalValue
-          , transfer = transfer
+          , extremalValue = extval
+          , transfer = trans
           }
 
 someFunc :: IO ()
 someFunc = do
-  let prog = SWhile () (BAOp OpEqual (AVar "x") (AVar "x")) (SAssign () "x" (AConst 3))
+  let stmt1 = SAssign () "x" (AConst 5)
+  let stmt2 = SAssign () "y" (AConst 1)
+  let stmt3 = BAOp OpLessThan (AConst 1) (AVar "x")
+  let stmt4 = SAssign () "y" (AOp OpMul (AVar "x") (AVar "y"))
+  let stmt5 = SAssign () "x" (AOp OpSub (AVar "x") (AConst 1))
+  let prog = SSeq stmt1 (SSeq stmt2 (SWhile () stmt3 (SSeq stmt4 stmt5)))
   let labeled = assignLabels prog
   let graph = determineFlowGraph labeled
   putStrLn "Vertices: "
   forM_ (vertices graph) print
   putStrLn "Edges: "
   forM_ (edges graph) print
-  print (reachingDefinitions labeled)
+
+  putStrLn ""
+  forM_ (M.toList (reachingDefinitions labeled)) $ \(node, (RD before, RD after)) -> do
+    putStrLn ("node: " ++ show node)
+    putStrLn "before: "
+    forM_ (M.toList before) $ \(name, reaching) ->
+      putStrLn (name ++ ": " ++ show reaching)
+    putStrLn "after: "
+    forM_ (M.toList after) $ \(name, reaching) ->
+      putStrLn (name ++ ": " ++ show reaching)
+    putStrLn ""
