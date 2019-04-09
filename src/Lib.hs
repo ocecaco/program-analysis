@@ -104,12 +104,14 @@ data MonotoneFramework lat = MonotoneFramework
   }
 
 -- uses worklist algorithm
-solveFramework :: CompleteLattice lat => MonotoneFramework lat -> Map Int lat
-solveFramework fw = go (flowGraph fw) initialAnalysis
-  where initialValue i
+solveFramework :: forall lat. CompleteLattice lat => MonotoneFramework lat -> Map Int (lat, lat)
+solveFramework fw = present (go (flowGraph fw) initialAnalysis)
+  where initialValue :: Int -> lat
+        initialValue i
           | i `elem` extremal fw = extremalValue fw
           | otherwise = bottom
 
+        initialAnalysis :: Map Int lat
         initialAnalysis = M.fromList (fromFlow ++ fromExtremal)
           where fromFlow = [ (i, initialValue i) | (a, b) <- flowGraph fw, i <- [a, b] ]
                 fromExtremal = [ (i, initialValue i) | i <- extremal fw ]
@@ -122,6 +124,7 @@ solveFramework fw = go (flowGraph fw) initialAnalysis
         successorFlows :: Int -> [(Int, Int)]
         successorFlows i = [ edge | edge@(source, _) <- flowGraph fw, source == i ]
 
+        go :: [(Int, Int)] -> Map Int lat -> Map Int lat
         go [] analysis = analysis -- TODO: also put the block exit analysis value
         go ((source, target):remaining) analysisOld
           -- ignore the results of the transfer function if they do
@@ -134,6 +137,9 @@ solveFramework fw = go (flowGraph fw) initialAnalysis
                 targetOld = analysisValue analysisOld target
                 targetUpdated = targetOld `combine` transferResults
                 analysisNew = M.insert target targetUpdated analysisOld
+
+        present :: Map Int lat -> Map Int (lat, lat)
+        present analysis = M.fromList [ (i, (entryValue, exitValue)) | (i, entryValue) <- M.toList analysis, let exitValue = transfer fw i entryValue ]
 
 someFunc :: IO ()
 someFunc = do
