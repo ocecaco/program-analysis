@@ -88,7 +88,7 @@ flowEdges (SSkip _) = []
 flowEdges (SSeq s1 s2) = flowEdges s1 ++ flowEdges s2 ++ internalEdges
   where internalEdges = [ (f, next) | let next = initialLabel s2, f <- finalLabels s1 ]
 flowEdges (SIf i _ s1 s2) = flowEdges s1 ++ flowEdges s2 ++ [(i, initialLabel s1), (i, initialLabel s2)]
-flowEdges (SWhile i _ body) = flowEdges body ++ [(i, initialLabel body), (initialLabel body, i)]
+flowEdges (SWhile i _ body) = flowEdges body ++ [(i, initialLabel body)] ++ [(bodyFinal, i) | bodyFinal <- finalLabels body]
 
 determineFlowGraph :: Stmt Int -> FlowGraph
 determineFlowGraph stmt = FlowGraph { vertices = blocks stmt, edges = flowEdges stmt }
