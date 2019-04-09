@@ -7,6 +7,8 @@ import Control.Monad.State
 import Control.Monad
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Set (Set)
+import qualified Data.Set as S
 import Data.Maybe
 
 data AExp = AVar String
@@ -92,7 +94,7 @@ flowEdges (SWhile i _ body) = flowEdges body ++ [(i, initialLabel body), (initia
 determineFlowGraph :: Stmt Int -> FlowGraph
 determineFlowGraph stmt = FlowGraph { vertices = blocks stmt, edges = flowEdges stmt }
 
-class Ord lat => CompleteLattice lat where
+class Eq lat => CompleteLattice lat where
   bottom :: lat
   combine :: lat -> lat -> lat
 
@@ -127,10 +129,9 @@ solveFramework fw = present (go (flowGraph fw) initialAnalysis)
         go :: [(Int, Int)] -> Map Int lat -> Map Int lat
         go [] analysis = analysis -- TODO: also put the block exit analysis value
         go ((source, target):remaining) analysisOld
-          -- ignore the results of the transfer function if they do
-          -- not give better information than we already had for the
-          -- target of this flow
-          | transferResults <= targetOld = go remaining analysisOld
+          -- if nothing changes in the analysis value of the target
+          -- node, no need to propagate any changes
+          | targetUpdated == targetOld = go remaining analysisOld
           -- otherwise propagate the changes
           | otherwise = go (successorFlows target ++ remaining) analysisNew
           where transferResults = transfer fw source (analysisValue analysisOld source)
@@ -139,7 +140,23 @@ solveFramework fw = present (go (flowGraph fw) initialAnalysis)
                 analysisNew = M.insert target targetUpdated analysisOld
 
         present :: Map Int lat -> Map Int (lat, lat)
-        present analysis = M.fromList [ (i, (entryValue, exitValue)) | (i, entryValue) <- M.toList analysis, let exitValue = transfer fw i entryValue ]
+        present analysis = M.fromList
+          [ (i, (entryValue, exitValue))
+          | (i, entryValue) <- M.toList analysis
+          , let exitValue = transfer fw i entryValue ]
+
+-- analysis values for reaching definitions:
+-- mapping from variable name to the places where it might have
+-- received its value. The value None indicates that the variable
+-- might be uninitialized
+newtype RD = RD (Map String (Set (Maybe Int)))
+           deriving (Eq, Show)
+
+instance CompleteLattice RD where
+  bottom = RD M.empty
+  combine (RD a1) (RD a2) = RD (M.unionWith S.union a1 a2)
+
+-- reachingDefinitions :: Stmt Int -> MonotoneFramework
 
 someFunc :: IO ()
 someFunc = do
